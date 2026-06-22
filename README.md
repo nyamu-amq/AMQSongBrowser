@@ -2,7 +2,7 @@
 
 A lightweight and fast desktop application designed to search and play anime songs used in the game **Anime Music Quiz**.
 
-![Screenshot](https://github.com/nyamu-amq/AMQSongBrowser/releases/download/v1.0.0/screenshot.jpg)
+![Screenshot](https://i.imgur.com/08y8HP7.jpeg)
 
 ## Getting Started
 
