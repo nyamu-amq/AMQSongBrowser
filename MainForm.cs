@@ -588,16 +588,23 @@ namespace AMQSongBrowser {
 			timerPlayPos.Tick += UpdatePlayPos;
 		}
 		private void DisposeMediaPlayer() {
+			if(timerPlayPos != null) {
+				timerPlayPos.Stop();
+				timerPlayPos.Tick-= UpdatePlayPos;
+				timerPlayPos.Dispose();
+				timerPlayPos = null;
+			}
 			if(mediaPlayer != null) {
+				mediaPlayer.Source = null;
 				mediaPlayer.MediaEnded -= OnMediaEnded;
 				mediaPlayer.MediaFailed -= OnMediaFailed;
-				mediaPlayer.Source = null;
 				mediaPlayer.Dispose();
 				mediaPlayer = null;
 			}
 		}
 		private void UpdatePlayPos(object sender, EventArgs e) {
 			if(isDraggingPlayPos) return;
+			if(mediaPlayer == null) return;
 			var session = mediaPlayer.PlaybackSession;
 			if(session != null && session.PlaybackState == MediaPlaybackState.Playing) {
 				double total = session.NaturalDuration.TotalSeconds;
@@ -622,6 +629,7 @@ namespace AMQSongBrowser {
 		}
 
 		private async Task<bool> PlayMediaLink(string medialink) {
+			StopPlaying();
 			if(string.IsNullOrEmpty(medialink)) return false;
 			try {
 				medialink = string.Concat(@"https://naedist.animemusicquiz.com/", medialink);

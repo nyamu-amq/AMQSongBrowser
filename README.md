@@ -32,10 +32,6 @@ A lightweight and fast desktop application designed to search and play anime son
 * Select any song in the list to view its detailed information in a tooltip.
 * Double-click a song or press `Enter` to play the selected track immediately.
 
-## Known Issues
-
-* **Audio Glitch:** A very brief audio noise may occur right at the beginning of song playback.
-
 ## Thanks to
 
 * [Egerod](https://animemusicquiz.com/) and the AMQ mod team for the game and database.
