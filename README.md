@@ -30,7 +30,10 @@ A lightweight and fast desktop application designed to search and play anime son
 * From the next launch, the application automatically loads the locally saved cache file on startup.
 * Type keywords to instantly filter songs by title, artist, anime title, or types.
 * Select any song in the list to view its detailed information in a tooltip.
-* Double-click a song or press `Enter` to play the selected track immediately.
+* Double-click a song or press `Enter` to add to playlist the selected song and play immediately.
+* Right-click songs in the lists to open a context menu with available actions
+* Use the Music Player window to manage queued songs
+* The playlist is automatically saved and restored between application launches
 
 ## Thanks to
 

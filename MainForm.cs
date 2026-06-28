@@ -1,16 +1,13 @@
-using System.Diagnostics;
-using System.Reflection;
+using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json;
-using Windows.Media.Core;
-using Windows.Media.Playback;
 using static AMQSongBrowser.DataCache;
 using static System.Windows.Forms.AxHost;
-
+using Timer = System.Windows.Forms.Timer;
 namespace AMQSongBrowser {
 	public partial class MainForm : Form {
-		bool inited = false;
-		bool update = false;
+		public static MainForm Instance { get; private set; }
+		public bool inited = false;
 		public class UiState {
 			public Point windowlocation { get; set; }
 			public Size windowsize { get; set; }
@@ -29,117 +26,163 @@ namespace AMQSongBrowser {
 			public bool checkRebroad { get; set; }
 			public bool radioEnglish { get; set; }
 			public bool radioRomaji { get; set; }
+			public Point playerwindowlocation { get; set; }
+			public Size playerwindowsize { get; set; }
 			public int volume { get; set; }
 			public bool mute { get; set; }
+			public bool shuffle { get; set; }
+			public int repeattype { get; set; }
+			public List<int> playercolumnwidths { get; set; } = new();
 		}
-		private readonly string configPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "settings.json");
 
+		private MusicPlayerForm musicplayerform;
 		public MainForm() {
+			Instance = this;
 			InitializeComponent();
-			InitMediaPlayer();
 			radioEnglish.TabStop = false;
 			radioRomaji.TabStop = false;
-			typeof(System.Windows.Forms.ListView).GetProperty("DoubleBuffered", BindingFlags.Instance | BindingFlags.NonPublic)?.SetValue(listResult, true, null);
-			listResult.VirtualMode = true;
-			listResult.VirtualListSize = 0;
-			listResult.RetrieveVirtualItem += ListResult_RetrieveVirtualItem;
 			httpClient.DefaultRequestHeaders.Add("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36");
+
+			musicplayerform = new MusicPlayerForm(httpClient);
 		}
 
-		Dictionary<int, string> strtype = new Dictionary<int, string>() {
-			{ 1,"Opening"},
-			{ 2,"Ending"},
-			{ 3,"Insert"}
-		};
-		Dictionary<int, string> strseason = new Dictionary<int, string>() {
-			{ 0,"Winter"},
-			{ 1,"Spring"},
-			{ 2,"Summer"},
-			{ 3,"Fall"}
-		};
-		private readonly object lockObj = new object();
+		private ContextMenuStrip contextmenu;
+		private void InitContextMenu() {
+			contextmenu = new ContextMenuStrip();
+			((ToolStripMenuItem)contextmenu.Items.Add("Add to Playlist and Play", null, AddToPlaylistAndPlay)).ShortcutKeyDisplayString = "Enter";
+			((ToolStripMenuItem)contextmenu.Items.Add("Add to Playlist", null, AddToPlaylist)).ShortcutKeyDisplayString = "Space";
+			((ToolStripMenuItem)contextmenu.Items.Add("Find Songs from Songname", null, FindSongsFromSongname)).ShortcutKeyDisplayString = "1";
+			((ToolStripMenuItem)contextmenu.Items.Add("Find Songs from Artist", null, FindSongsFromArtist)).ShortcutKeyDisplayString = "2";
+			((ToolStripMenuItem)contextmenu.Items.Add("Find Songs from Anime", null, FindSongsFromAnime)).ShortcutKeyDisplayString = "3";
+
+			contextmenu.Opening += (s, e) => { e.Cancel = listResult.SelectedIndices.Count == 0; };
+			listResult.ContextMenuStrip = contextmenu;
+		}
+
+		private readonly string configPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "settings.json");
+		private void OnFormLoad(object sender, EventArgs e) {
+			try {
+				if(!File.Exists(configPath)) return;
+				string json = File.ReadAllText(configPath);
+				UiState state = JsonSerializer.Deserialize<UiState>(json);
+
+				if(state != null) {
+					Location = state.windowlocation;
+					Size = state.windowsize;
+
+					for(int i = 0; i < state.columnwidths.Count && i < listResult.Columns.Count; i++) {
+						listResult.Columns[i].Width = state.columnwidths[i];
+					}
+					checkSongName.Checked = state.checkSongName;
+					checkArtist.Checked = state.checkArtist;
+					checkAnime.Checked = state.checkAnime;
+					checkOP.Checked = state.checkOP;
+					checkED.Checked = state.checkED;
+					checkINS.Checked = state.checkINS;
+					checkStandard.Checked = state.checkStandard;
+					checkInstrumental.Checked = state.checkInstrumental;
+					checkChanting.Checked = state.checkChanting;
+					checkCharacter.Checked = state.checkCharacter;
+					checkDub.Checked = state.checkDub;
+					checkRebroad.Checked = state.checkRebroad;
+					radioEnglish.Checked = state.radioEnglish;
+					radioRomaji.Checked = state.radioRomaji;
+
+					musicplayerform.LoadState(state);
+				}
+			}
+			finally {
+				inited = true;
+				listResult.inited = true;
+				listResult.update = true;
+				DataCache.Instance.isSongName = checkSongName.Checked;
+				DataCache.Instance.isArtist = checkArtist.Checked;
+				DataCache.Instance.isAnime = checkAnime.Checked;
+				DataCache.Instance.isOP = checkOP.Checked;
+				DataCache.Instance.isED = checkED.Checked;
+				DataCache.Instance.isINS = checkINS.Checked;
+				DataCache.Instance.isStandard = checkStandard.Checked;
+				DataCache.Instance.isInstrumental = checkInstrumental.Checked;
+				DataCache.Instance.isChanting = checkChanting.Checked;
+				DataCache.Instance.isCharacter = checkCharacter.Checked;
+				DataCache.Instance.isDub = checkDub.Checked;
+				DataCache.Instance.isRebroad = checkRebroad.Checked;
+				DataCache.Instance.isSongNameDirty = true;
+				DataCache.Instance.isArtistDirty = true;
+				DataCache.Instance.isAnimeDirty = true;
+				if(DataCache.Instance.inited)
+					labelLastUpdate.Text = DataCache.Instance.timeLastUpdate.ToString("g");
+				InitContextMenu();
+				UpdateList();
+				buttonPlayer.Image = IconContainer.Get("player");
+				musicplayerform.Init();
+			}
+		}
+
+		private bool closecompleted = false;
+		private async void OnFormClosing(object sender, FormClosingEventArgs e) {
+			if(closecompleted) return;
+			e.Cancel = true;
+			Hide();
+			musicplayerform.Hide();
+
+			var state = new UiState {
+				windowlocation = Location,
+				windowsize = Size,
+				checkSongName = checkSongName.Checked,
+				checkArtist = checkArtist.Checked,
+				checkAnime = checkAnime.Checked,
+				checkOP = checkOP.Checked,
+				checkED = checkED.Checked,
+				checkINS = checkINS.Checked,
+				checkStandard = checkStandard.Checked,
+				checkInstrumental = checkInstrumental.Checked,
+				checkChanting = checkChanting.Checked,
+				checkCharacter = checkCharacter.Checked,
+				checkDub = checkDub.Checked,
+				checkRebroad = checkRebroad.Checked,
+				radioEnglish = radioEnglish.Checked,
+				radioRomaji = radioRomaji.Checked,
+			};
+			foreach(ColumnHeader col in listResult.Columns)
+				state.columnwidths.Add(col.Width);
+			musicplayerform.SaveState(state);
+			string json = JsonSerializer.Serialize(state, new JsonSerializerOptions { WriteIndented = true });
+			File.WriteAllText(configPath, json);
+
+			await musicplayerform.DisposeAll();
+			closecompleted = true;
+			Close();
+		}
+
+		private static readonly HttpClient httpClient = new HttpClient();
+		private void OnUpdateCacheClick(object sender, EventArgs e) {
+			if(!inited) return;
+			using(var progressForm = new UpdateCache(httpClient)) {
+				progressForm.StartPosition = FormStartPosition.CenterScreen;
+				DialogResult result = progressForm.ShowDialog(this);
+
+				if(result == DialogResult.OK) {
+					MessageBox.Show(this, "Update completed!");
+					DataCache.Instance.isSongNameDirty = true;
+					DataCache.Instance.isArtistDirty = true;
+					DataCache.Instance.isAnimeDirty = true;
+					labelLastUpdate.Text = DataCache.Instance.timeLastUpdate.ToString("g");
+					UpdateList();
+				}
+				else if(result == DialogResult.Cancel)
+					MessageBox.Show(this, "Update canceled", "Infomation", MessageBoxButtons.OK, MessageBoxIcon.Information);
+			}
+		}
+
 		List<AllSongListData> matched;
-		private void ListResult_RetrieveVirtualItem(object sender, RetrieveVirtualItemEventArgs e) {
-			lock(lockObj) {
-				var data = matched[e.ItemIndex];
-
-				e.Item = new ListViewItem(DataCache.Instance.GetSongData(data.songid).name);
-				if(data.artistid > 0) e.Item.SubItems.Add(DataCache.Instance.GetArtistData(data.artistid).name);
-				else e.Item.SubItems.Add(DataCache.Instance.GetGroupData(data.groupid).nameartists);
-				if(radioEnglish.Checked) e.Item.SubItems.Add(DataCache.Instance.GetAnimeData(data.animeid).nameen);
-				else e.Item.SubItems.Add(DataCache.Instance.GetAnimeData(data.animeid).nameja);
-				e.Item.SubItems.Add(data.type == 3 ? strtype[data.type] : string.Join(" ", strtype[data.type], data.number));
-				e.Item.SubItems.Add(data.animecategory);
-			}
-		}
+		public bool IsEnglish { get { return radioEnglish.Checked; } }
 		void UpdateList() {
-			lock(lockObj) {
-				if(!update) return;
-				matched = DataCache.Instance.GetMatchedSongList();
-				SortResults();
-				listResult.VirtualListSize = matched.Count;
-			}
+			if(!listResult.update) return;
+			matched = DataCache.Instance.GetMatchedSongList();
+			listResult.UpdateList(matched);
 			if(DataCache.Instance.inited)
 				labelLastUpdate.Text = DataCache.Instance.timeLastUpdate.ToString("g");
-			UpdateColumnHeaderSigns();
-			listResult.Invalidate();
-		}
-		private int lastSortColumn = -1;
-		private bool isAscending = true;
-
-		public void SortResults() {
-			if(lastSortColumn < 0) return;
-			matched.Sort((x, y) => {
-				int result = 0;
-				switch(lastSortColumn) {
-					case 0:
-						result = string.Compare(DataCache.Instance.GetSongData(x.songid).name, DataCache.Instance.GetSongData(y.songid).name);
-						break;
-					case 1:
-						var strx = (x.artistid == 0) ? DataCache.Instance.GetGroupData(x.groupid).nameartists : DataCache.Instance.GetArtistData(x.artistid).name;
-						var stry = (y.artistid == 0) ? DataCache.Instance.GetGroupData(y.groupid).nameartists : DataCache.Instance.GetArtistData(y.artistid).name;
-						result = string.Compare(strx, stry);
-						break;
-					case 2:
-						if(radioEnglish.Checked)
-							result = string.Compare(DataCache.Instance.GetAnimeData(x.animeid).nameen, DataCache.Instance.GetAnimeData(y.animeid).nameen);
-						else
-							result = string.Compare(DataCache.Instance.GetAnimeData(x.animeid).nameja, DataCache.Instance.GetAnimeData(y.animeid).nameja);
-						break;
-					case 3:
-						result = (x.type * 1000 + x.number).CompareTo(y.type * 1000 + y.number);
-						break;
-					case 4:
-						result = string.Compare(x.animecategory, y.animecategory);
-						break;
-				}
-
-				return isAscending ? result : -result;
-			});
-		}
-
-		private void OnResultClickColumn(object sender, ColumnClickEventArgs e) {
-			if(matched.Count == 0) return;
-			if(e.Column == lastSortColumn)
-				isAscending = !isAscending;
-			else {
-				isAscending = true;
-				lastSortColumn = e.Column;
-			}
-			lock(lockObj) {
-				SortResults();
-			}
-			UpdateColumnHeaderSigns();
-			listResult.Invalidate();
-		}
-		private void UpdateColumnHeaderSigns() {
-			for(int i = 0; i < listResult.Columns.Count; i++) {
-				string cleanText = listResult.Columns[i].Text.Replace(" ▲", "").Replace(" ▼", "");
-				if(i == lastSortColumn)
-					listResult.Columns[i].Text = cleanText + (isAscending ? " ▲" : " ▼");
-				else
-					listResult.Columns[i].Text = cleanText;
-			}
 		}
 
 		private void OnKeyDown(object sender, KeyEventArgs e) {
@@ -163,133 +206,9 @@ namespace AMQSongBrowser {
 			SendKeys.SendWait("{" + send + "}");
 			e.Handled = true;
 		}
-		private void OnResultKeyDown(object sender, KeyEventArgs e) {
-			if(e.KeyCode == Keys.Enter) {
-				if(listResult.SelectedIndices.Count > 0)
-					PlaySong(matched[listResult.SelectedIndices[0]]);
-			}
-		}
 		private void OnTextboxEnter(object sender, EventArgs e) {
 			if(sender is System.Windows.Forms.TextBox textbox)
 				textbox.SelectAll();
-		}
-
-		private void OnFormLoad(object sender, EventArgs e) {
-			try {
-				if(!File.Exists(configPath)) return;
-				string json = File.ReadAllText(configPath);
-				UiState? state = JsonSerializer.Deserialize<UiState>(json);
-
-				if(state != null) {
-					Location = state.windowlocation;
-					Size = state.windowsize;
-
-					for(int i = 0; i < state.columnwidths.Count && i < listResult.Columns.Count; i++) {
-						listResult.Columns[i].Width = state.columnwidths[i];
-					}
-					checkSongName.Checked = state.checkSongName;
-					checkArtist.Checked = state.checkArtist;
-					checkAnime.Checked = state.checkAnime;
-					checkOP.Checked = state.checkOP;
-					checkED.Checked = state.checkED;
-					checkINS.Checked = state.checkINS;
-					checkStandard.Checked = state.checkStandard;
-					checkInstrumental.Checked = state.checkInstrumental;
-					checkChanting.Checked = state.checkChanting;
-					checkCharacter.Checked = state.checkCharacter;
-					checkDub.Checked = state.checkDub;
-					checkRebroad.Checked = state.checkRebroad;
-					radioEnglish.Checked = state.radioEnglish;
-					radioRomaji.Checked = state.radioRomaji;
-					trackVolume.Value = state.volume;
-					mediaPlayer.Volume = state.volume / 100.0;
-					mediaPlayer.IsMuted = state.mute;
-					UpdateMuteButton();
-				}
-			}
-			finally {
-				inited = true;
-				update = true;
-				DataCache.Instance.isSongName = checkSongName.Checked;
-				DataCache.Instance.isArtist = checkArtist.Checked;
-				DataCache.Instance.isAnime = checkAnime.Checked;
-				DataCache.Instance.isOP = checkOP.Checked;
-				DataCache.Instance.isED = checkED.Checked;
-				DataCache.Instance.isINS = checkINS.Checked;
-				DataCache.Instance.isStandard = checkStandard.Checked;
-				DataCache.Instance.isInstrumental = checkInstrumental.Checked;
-				DataCache.Instance.isChanting = checkChanting.Checked;
-				DataCache.Instance.isCharacter = checkCharacter.Checked;
-				DataCache.Instance.isDub = checkDub.Checked;
-				DataCache.Instance.isRebroad = checkRebroad.Checked;
-				DataCache.Instance.isSongNameDirty = true;
-				DataCache.Instance.isArtistDirty = true;
-				DataCache.Instance.isAnimeDirty = true;
-				UpdateList();
-			}
-		}
-
-		private bool closecompleted = false;
-		private async void OnFormClosing(object sender, FormClosingEventArgs e) {
-			if(closecompleted) return;
-			e.Cancel = true;
-			Hide();
-
-			var state = new UiState {
-				windowlocation = Location,
-				windowsize = Size,
-				checkSongName = checkSongName.Checked,
-				checkArtist = checkArtist.Checked,
-				checkAnime = checkAnime.Checked,
-				checkOP = checkOP.Checked,
-				checkED = checkED.Checked,
-				checkINS = checkINS.Checked,
-				checkStandard = checkStandard.Checked,
-				checkInstrumental = checkInstrumental.Checked,
-				checkChanting = checkChanting.Checked,
-				checkCharacter = checkCharacter.Checked,
-				checkDub = checkDub.Checked,
-				checkRebroad = checkRebroad.Checked,
-				radioEnglish = radioEnglish.Checked,
-				radioRomaji = radioRomaji.Checked,
-				volume = trackVolume.Value,
-				mute = mediaPlayer.IsMuted
-			};
-			foreach(ColumnHeader col in listResult.Columns) {
-				state.columnwidths.Add(col.Width);
-			}
-			string json = JsonSerializer.Serialize(state, new JsonSerializerOptions { WriteIndented = true });
-			File.WriteAllText(configPath, json);
-
-			try {
-				while(isRetrievingMedia)
-					await Task.Delay(100);
-				// save medialinkcache!
-			}
-			finally {
-				closecompleted = true;
-				DisposeMediaPlayer();
-				Close();
-			}
-		}
-
-		private static readonly HttpClient httpClient = new HttpClient();
-		private void OnUpdateCacheClick(object sender, EventArgs e) {
-			if(!inited) return;
-			using(var progressForm = new UpdateCache(httpClient)) {
-				progressForm.StartPosition = FormStartPosition.CenterScreen;
-				DialogResult result = progressForm.ShowDialog(this);
-
-				if(result == DialogResult.OK) {
-					MessageBox.Show(this, "Update completed!");
-					DataCache.Instance.isSongNameDirty = true;
-					DataCache.Instance.isArtistDirty = true;
-					DataCache.Instance.isAnimeDirty = true;
-					UpdateList();
-				}
-				else if(result == DialogResult.Cancel)
-					MessageBox.Show(this, "Update canceled", "Infomation", MessageBoxButtons.OK, MessageBoxIcon.Information);
-			}
 		}
 
 		private void OnSongNameChanged(object sender, EventArgs e) {
@@ -299,7 +218,6 @@ namespace AMQSongBrowser {
 			DataCache.Instance.isSongNameDirty = true;
 			UpdateList();
 		}
-
 		private void OnArtistChanged(object sender, EventArgs e) {
 			if(!inited) return;
 			DataCache.Instance.isArtist = checkArtist.Checked;
@@ -307,7 +225,6 @@ namespace AMQSongBrowser {
 			DataCache.Instance.isArtistDirty = true;
 			UpdateList();
 		}
-
 		private void OnAnimeChanged(object sender, EventArgs e) {
 			if(!inited) return;
 			DataCache.Instance.isAnime = checkAnime.Checked;
@@ -315,7 +232,6 @@ namespace AMQSongBrowser {
 			DataCache.Instance.isAnimeDirty = true;
 			UpdateList();
 		}
-
 		private void OnSongTypeChanged(object sender, EventArgs e) {
 			if(!inited) return;
 			DataCache.Instance.isOP = checkOP.Checked;
@@ -330,382 +246,142 @@ namespace AMQSongBrowser {
 			UpdateList();
 		}
 
-		private void OnEnglishClick(object sender, EventArgs e) {
+		private void OnLanguageClick(object sender, EventArgs e) {
 			listResult.Invalidate();
-			if(!inited) return;
+			musicplayerform.LanguageChanged();
 		}
-
-		private void OnRomajiClick(object sender, EventArgs e) {
-			listResult.Invalidate();
-			if(!inited) return;
-		}
-
 		private void DisableRadioTabstop(object sender, EventArgs e) {
-			if(sender is RadioButton radio) {
+			if(sender is RadioButton radio)
 				radio.TabStop = false;
-			}
-		}
-
-		private double[] columnsWidthRatios = new double[3];
-		private int fixedWidth = 0;
-
-		private void RecordColumnsWidthRatios() {
-			int totalWidth = 0;
-			fixedWidth = 0;
-			foreach(ColumnHeader col in listResult.Columns) {
-				if(col.Index < 3) totalWidth += col.Width;
-				else fixedWidth += col.Width;
-			}
-			if(totalWidth <= 0) return;
-			for(int i = 0; i < 3; i++)
-				columnsWidthRatios[i] = (double)listResult.Columns[i].Width / totalWidth;
-		}
-		private void ResizeColumns() {
-			if(WindowState == FormWindowState.Minimized) return;
-			if(columnsWidthRatios[0] == 0) return;
-
-			int usableWidth = listResult.ClientSize.Width - fixedWidth;
-			if(usableWidth <= 0) return;
-
-			for(int i = 0; i < 3; i++) {
-				listResult.Columns[i].Width = (int)(usableWidth * columnsWidthRatios[i]);
-			}
 		}
 
 		private void OnFormResizeBegin(object sender, EventArgs e) {
-			RecordColumnsWidthRatios();
+			listResult.RecordColumnsWidthRatios();
 		}
 		private void OnFormResizeEnd(object sender, EventArgs e) {
 			if(!inited) return;
-			if(isAdjusting) return;
-			isAdjusting = true;
-			ResizeColumns();
-			isAdjusting = false;
+			listResult.ResizeColumns();
 		}
 
-		private bool isAdjusting = false;
-		private void OnResultChangingColumnWidth(object sender, ColumnWidthChangingEventArgs e) {
-			if(!inited) return;
-			if(isAdjusting) return;
-			isAdjusting = true;
-			try {
-				var index = e.ColumnIndex;
-				if(index < 4)
-					listResult.Columns[index + 1].Width += listResult.Columns[index].Width - e.NewWidth;
-			}
-			finally {
-				isAdjusting = false;
-			}
-		}
-
-		private void OnResultChangedColumnWidth(object sender, ColumnWidthChangedEventArgs e) {
-			if(!inited) return;
-			if(isAdjusting) return;
-			isAdjusting = true;
-			RecordColumnsWidthRatios();
-			ResizeColumns();
-			isAdjusting = false;
-		}
-
-		private void OnResultClick(object sender, MouseEventArgs e) {
-			if(!inited) return;
-			if(e.Button == MouseButtons.Right) {
-				Point mousePos = listResult.PointToClient(Control.MousePosition);
-				ListViewHitTestInfo hitTest = listResult.HitTest(mousePos);
-				int columnIndex = hitTest.Item.SubItems.IndexOf(hitTest.SubItem);
-				update = false;
-
-				int selected = listResult.SelectedIndices[0];
-				if(columnIndex > 2) return;
-
-				textSongName.Text = string.Empty; textArtist.Text = string.Empty; textAnime.Text = string.Empty;
-				if(columnIndex == 0) {
-					textSongName.Text = listResult.Items[selected].SubItems[columnIndex].Text;
-					checkSongName.Checked = true;
-					textSongName.Focus();
-				}
-				else if(columnIndex == 1) {
-					textArtist.Text = listResult.Items[selected].SubItems[columnIndex].Text;
-					checkArtist.Checked = true;
-					textArtist.Focus();
-				}
-				else if(columnIndex == 2) {
-					textAnime.Text = listResult.Items[selected].SubItems[columnIndex].Text;
-					checkAnime.Checked = true;
-					textAnime.Focus();
-				}
-				DataCache.Instance.isSongNameDirty = true;
-				DataCache.Instance.isArtistDirty = true;
-				DataCache.Instance.isAnimeDirty = true;
-				update = true;
-				UpdateList();
-			}
-		}
 		private void OnResultDoubleClick(object sender, MouseEventArgs e) {
 			if(!inited) return;
 			if(e.Button == MouseButtons.Left) {
-				if(listResult.SelectedIndices.Count > 0)
-					PlaySong(matched[listResult.SelectedIndices[0]]);
+				AddToPlaylistAndPlay(sender, e);
 			}
 		}
 		protected override bool ProcessCmdKey(ref Message msg, Keys keyData) {
 			if(keyData == Keys.Escape) {
 				if(!this.ContainsFocus)
 					return base.ProcessCmdKey(ref msg, keyData);
-				update = false;
+				listResult.update = false;
 				textSongName.Text = textArtist.Text = textAnime.Text = string.Empty;
 				DataCache.Instance.isSongNameDirty = true;
 				DataCache.Instance.isArtistDirty = true;
 				DataCache.Instance.isAnimeDirty = true;
-				update = true;
+				listResult.update = true;
 				UpdateList();
 				return true;
 			}
 			return base.ProcessCmdKey(ref msg, keyData);
 		}
 
-		private void OnResultMouseLeave(object sender, EventArgs e) {
-			toolTip1.RemoveAll();
+		private void OnResultKeyDown(object sender, KeyEventArgs e) {
+			if(e.KeyCode == Keys.Enter) AddToPlaylistAndPlay(sender, e);
+			else if(e.KeyCode == Keys.Space) AddToPlaylist(sender, e);
+			else if(e.KeyCode == Keys.D1) FindSongsFromSongname(sender, e);
+			else if(e.KeyCode == Keys.D2) FindSongsFromArtist(sender, e);
+			else if(e.KeyCode == Keys.D3) FindSongsFromAnime(sender, e);
+			else if(e.KeyCode == Keys.Q) { checkSongName.Checked = !checkSongName.Checked; OnSongNameChanged(sender, e); }
+			else if(e.KeyCode == Keys.W) { checkArtist.Checked = !checkArtist.Checked; OnArtistChanged(sender, e); }
+			else if(e.KeyCode == Keys.E) { checkAnime.Checked = !checkAnime.Checked; OnAnimeChanged(sender, e); }
+			else if(e.KeyCode == Keys.A) { checkOP.Checked = !checkOP.Checked; OnSongTypeChanged(sender, e); }
+			else if(e.KeyCode == Keys.S) { checkED.Checked = !checkED.Checked; OnSongTypeChanged(sender, e); }
+			else if(e.KeyCode == Keys.D) { checkINS.Checked = !checkINS.Checked; OnSongTypeChanged(sender, e); }
+			else if(e.KeyCode == Keys.Z) { checkStandard.Checked = !checkStandard.Checked; OnSongTypeChanged(sender, e); }
+			else if(e.KeyCode == Keys.X) { checkInstrumental.Checked = !checkInstrumental.Checked; OnSongTypeChanged(sender, e); }
+			else if(e.KeyCode == Keys.C) { checkChanting.Checked = !checkChanting.Checked; OnSongTypeChanged(sender, e); }
+			else if(e.KeyCode == Keys.V) { checkCharacter.Checked = !checkCharacter.Checked; OnSongTypeChanged(sender, e); }
+			else if(e.KeyCode == Keys.B) { checkDub.Checked = !checkDub.Checked; OnSongTypeChanged(sender, e); }
+			else if(e.KeyCode == Keys.N) { checkRebroad.Checked = !checkRebroad.Checked; OnSongTypeChanged(sender, e); }
+			else if(e.KeyCode == Keys.L) { if(radioEnglish.Checked) radioRomaji.Checked = true; else radioEnglish.Checked = true; OnLanguageClick(sender, e); }
+			else if(e.KeyCode == Keys.P) OnPlayerClick(sender, e);
+			else return;
+			e.Handled = true;
+			e.SuppressKeyPress = true;
 		}
 
-		private void OnResultSelectedIndexChanged(object sender, EventArgs e) {
-			ShowTooltip();
-		}
-		private void ShowTooltip() {
-			BeginInvoke(new Action(() => {
-				if(listResult.SelectedIndices.Count == 0) return;
-				var rowIndex = listResult.SelectedIndices[0];
-				StringBuilder sb = new StringBuilder();
-				var animedata = DataCache.Instance.GetAnimeData(matched[rowIndex].animeid);
-				var songdata = DataCache.Instance.GetSongData(matched[rowIndex].songid);
-				sb.AppendLine($"Song Name: {songdata.name}");
-				sb.AppendLine();
-				AppendArtist(sb, "Artist", songdata.artist);
-				AppendGroup(sb, "Artist", songdata.group);
-				AppendArtist(sb, "Composer", songdata.composerartist);
-				AppendGroup(sb, "Composer", songdata.composergroup);
-				AppendArtist(sb, "Arranger", songdata.arrangerartist);
-				AppendGroup(sb, "Arranger", songdata.arrangergroup);
-				sb.AppendLine();
-				sb.AppendLine($"Anime English: {animedata.nameen}");
-				sb.AppendLine($"Anime Romaji: {animedata.nameja}");
-				sb.AppendLine();
-				sb.AppendLine($"Category: {matched[rowIndex].animecategory}");
-				sb.AppendLine($"Year: {strseason[animedata.seasonid]} {animedata.year}");
-				sb.AppendLine($"ANNID: {animedata.annid}");
-				var celltext = sb.ToString();
-				if(celltext.Length > 0) {
-					var rowrect = listResult.GetItemRect(rowIndex, ItemBoundsPortion.Entire);
-					toolTip1.Show(celltext, listResult, rowrect.Width, rowrect.Y + rowrect.Height);
-				}
-			}));
-		}
-		private void AppendArtist(StringBuilder sb, string label, int id) {
-			if(id > 0)
-				sb.AppendLine($"{label}: {DataCache.Instance.GetArtistData(id).name}");
-		}
-		private void AppendGroup(StringBuilder sb, string label, int id) {
-			if(id > 0) {
-				var groupdata = DataCache.Instance.GetGroupData(id);
-				sb.AppendLine($"{label}: {groupdata.name}");
-				foreach(var artist in groupdata.artists)
-					sb.AppendLine($"    {DataCache.Instance.GetArtistData(artist).name}");
-			}
-		}
-
-		private void OnEnterResult(object sender, EventArgs e) {
-			ShowTooltip();
-		}
-
-		private bool isRetrievingMedia = false;
-
-		private async void PlaySong(AllSongListData allsonglistdata) {
-			if(isRetrievingMedia) return;
-			isRetrievingMedia = true;
-			DisableMediaControls();
-
-			var animedata = DataCache.Instance.GetAnimeData(allsonglistdata.animeid);
-			var medialink = MediaLinkCache.Instance.GetMediaLink(allsonglistdata.annsongid);
-			if(!await PlayMediaLink(medialink)) {
-				await RetrieveAnisongdbInfo(animedata.annid);
-				medialink = MediaLinkCache.Instance.GetMediaLink(allsonglistdata.annsongid);
-				await PlayMediaLink(medialink);
-			}
-			isRetrievingMedia = false;
-		}
-		private int GetInt(in JsonElement element, string key) {
-			if(element.TryGetProperty(key, out var value))
-				return value.GetInt32();
-			return 0;
-		}
-		private string GetStr(in JsonElement element, string key) {
-			if(element.TryGetProperty(key, out var value))
-				return value.GetString();
-			return string.Empty;
-		}
-		private async Task RetrieveAnisongdbInfo(int annid) {
-			var content = new StringContent(JsonSerializer.Serialize(new { ann_ids = new int[] { annid }, ignore_duplicate = false }), Encoding.UTF8, "application/json");
-			HttpResponseMessage response = await httpClient.PostAsync("https://anisongdb.com/api/ann_ids_request", content);
-			if(response.IsSuccessStatusCode) {
-				string json = await response.Content.ReadAsStringAsync();
-				using(JsonDocument doc = JsonDocument.Parse(json)) {
-					JsonElement root = doc.RootElement;
-					foreach(JsonElement element in root.EnumerateArray()) {
-						int annsongid = GetInt(element, "annSongId");
-						string audio = GetStr(element, "audio");
-						string MQ = GetStr(element, "MQ");
-						string HQ = GetStr(element, "HQ");
-						MediaLinkCache.Instance.UpdateData(annsongid, audio, string.IsNullOrEmpty(HQ) ? MQ : HQ);
-					}
-					MediaLinkCache.Instance.SaveCacheData();
-				}
-			}
-		}
-
-		private void DisableMediaControls() {
-			isPlaying = false;
-			buttonPlay.Enabled = false;
-			trackPlayingPos.Enabled = false;
-			UpdatePlayButton();
-		}
-		private void EnableMediaControls() {
-			isPlaying = true;
-			buttonPlay.Enabled = true;
-			trackPlayingPos.Enabled = true;
-			UpdatePlayButton();
-		}
-		private void UpdateMuteButton() {
-			buttonMute.Text = mediaPlayer.IsMuted ? "🔇" : buttonMute.Text = "🔊";
-		}
-
-		MediaPlayer mediaPlayer;
-		private System.Windows.Forms.Timer timerPlayPos = new System.Windows.Forms.Timer();
-		private void InitMediaPlayer() {
-			mediaPlayer = new MediaPlayer();
-			mediaPlayer.MediaEnded += OnMediaEnded;
-			mediaPlayer.MediaFailed += OnMediaFailed;
-			timerPlayPos.Interval = 200;
-			timerPlayPos.Tick += UpdatePlayPos;
-		}
-		private void DisposeMediaPlayer() {
-			if(timerPlayPos != null) {
-				timerPlayPos.Stop();
-				timerPlayPos.Tick-= UpdatePlayPos;
-				timerPlayPos.Dispose();
-				timerPlayPos = null;
-			}
-			if(mediaPlayer != null) {
-				mediaPlayer.Source = null;
-				mediaPlayer.MediaEnded -= OnMediaEnded;
-				mediaPlayer.MediaFailed -= OnMediaFailed;
-				mediaPlayer.Dispose();
-				mediaPlayer = null;
-			}
-		}
-		private void UpdatePlayPos(object sender, EventArgs e) {
-			if(isDraggingPlayPos) return;
-			if(mediaPlayer == null) return;
-			var session = mediaPlayer.PlaybackSession;
-			if(session != null && session.PlaybackState == MediaPlaybackState.Playing) {
-				double total = session.NaturalDuration.TotalSeconds;
-				double current = session.Position.TotalSeconds;
-				if(total > 0) {
-					trackPlayingPos.Maximum = (int)total;
-					trackPlayingPos.Value = (int)current;
-				}
-			}
-		}
-		private void OnMediaEnded(MediaPlayer sender, object args) {
-			Invoke(new Action(() => {
-				StopPlaying();
-			}));
-		}
-		private void OnMediaFailed(MediaPlayer sender, MediaPlayerFailedEventArgs args) {
-		}
-		private void StopPlaying() {
-			timerPlayPos.Stop();
-			mediaPlayer.Source = null;
-			DisableMediaControls();
-		}
-
-		private async Task<bool> PlayMediaLink(string medialink) {
-			StopPlaying();
-			if(string.IsNullOrEmpty(medialink)) return false;
-			try {
-				medialink = string.Concat(@"https://naedist.animemusicquiz.com/", medialink);
-				mediaPlayer.Source = null;
-				var mediaUri = new Uri(medialink);
-				var mediaSource = MediaSource.CreateFromUri(mediaUri);
-				mediaPlayer.Source = mediaSource;
-				await mediaSource.OpenAsync();
-				mediaPlayer.Play();
-				isPlaying = true;
-				trackPlayingPos.Value = 0;
-				EnableMediaControls();
-				timerPlayPos.Start();
+		private bool CheckMaximumSelectedSongs() {
+			if(listResult.SelectedIndices.Count > 99) {
+				MessageBox.Show("Cannot add more than 99 songs at once.", "Warning", MessageBoxButtons.OK, MessageBoxIcon.Warning);
 				return true;
 			}
-			catch {
-				StopPlaying();
-				return false;
+			return false;
+		}
+		private void AddToPlaylistAndPlay(object sender, EventArgs e) {
+			if(CheckMaximumSelectedSongs()) return;
+			if(listResult.SelectedIndices.Count > 0) {
+				musicplayerform.AddToPlaylistAndPlay(listResult.GetSelectedSongList());
+				ShowPlayer();
+			}
+		}
+		private void AddToPlaylist(object sender, EventArgs e) {
+			if(CheckMaximumSelectedSongs()) return;
+			if(listResult.SelectedIndices.Count > 0) {
+				musicplayerform.AddToPlaylist(listResult.GetSelectedSongList());
+				ShowPlayer();
+			}
+		}
+		private void FindSongsFromSongname(object sender, EventArgs e) {
+			var focuseditem = listResult.FocusedItem;
+			if(focuseditem != null) {
+				textSongName.Text = string.Empty; textArtist.Text = string.Empty; textAnime.Text = string.Empty;
+				textSongName.Text = focuseditem.SubItems[0].Text;
+				checkSongName.Checked = true;
+				textSongName.Focus();
+			}
+		}
+		private void FindSongsFromArtist(object sender, EventArgs e) {
+			var songdata = listResult.GetFocusedSongData();
+			if(songdata != null) {
+				textSongName.Text = string.Empty; textArtist.Text = string.Empty; textAnime.Text = string.Empty;
+				if(songdata.artistid > 0) textArtist.Text = DataCache.Instance.GetArtistData(songdata.artistid).name;
+				else textArtist.Text = DataCache.Instance.GetGroupData(songdata.groupid).name;
+				checkArtist.Checked = true;
+				textArtist.Focus();
+			}
+		}
+		private void FindSongsFromAnime(object sender, EventArgs e) {
+			var focuseditem = listResult.FocusedItem;
+			if(focuseditem != null) {
+				textSongName.Text = string.Empty; textArtist.Text = string.Empty; textAnime.Text = string.Empty;
+				textAnime.Text = focuseditem.SubItems[2].Text;
+				checkAnime.Checked = true;
+				textAnime.Focus();
 			}
 		}
 
-		private bool isPlaying = false;
-		private void OnPauseResumeClick(object sender, EventArgs e) {
-			var session = mediaPlayer.PlaybackSession;
-			if(session != null) {
-				if(session.PlaybackState == MediaPlaybackState.Playing) {
-					mediaPlayer.Pause();
-					isPlaying = false;
+		private void OnPlayerClick(object sender, EventArgs e) {
+			ShowHidePlayer();
+		}
+		private void ShowPlayer() {
+			if(!musicplayerform.Visible) musicplayerform.Show(this);
+		}
+		private void ShowHidePlayer() {
+			if(musicplayerform.Visible) musicplayerform.Hide();
+			else musicplayerform.Show(this);
+		}
+		private bool wasplayervisible = false;
+		private void OnFormSizeChanged(object sender, EventArgs e) {
+			if(musicplayerform != null) {
+				if(WindowState == FormWindowState.Minimized) {
+					wasplayervisible = musicplayerform.Visible;
+					musicplayerform.Hide();
 				}
-				else {
-					mediaPlayer.Play();
-					isPlaying = true;
+				else if(WindowState == FormWindowState.Normal || WindowState == FormWindowState.Maximized) {
+					if(wasplayervisible)
+						ShowPlayer();
 				}
 			}
-			UpdatePlayButton();
-		}
-		private void UpdatePlayButton() {
-			buttonPlay.Text = isPlaying ? "||" : "▶️";
-		}
-
-		private void OnMuteClick(object sender, EventArgs e) {
-			mediaPlayer.IsMuted = !mediaPlayer.IsMuted;
-			UpdateMuteButton();
-		}
-
-		private void OnVolumeMouseDown(object sender, MouseEventArgs e) {
-			SyncTrackBarClickLocation(trackVolume, e);
-			mediaPlayer.Volume = trackVolume.Value / 100.0;
-		}
-		private void OnVolumeValueChanged(object sender, EventArgs e) {
-			mediaPlayer.Volume = trackVolume.Value / 100.0;
-		}
-
-		private bool isDraggingPlayPos = false;
-		private void OnPlayPosMouseDown(object sender, MouseEventArgs e) {
-			isDraggingPlayPos = true;
-			SyncTrackBarClickLocation(trackPlayingPos, e);
-		}
-		private void OnPlayPosMouseUp(object sender, MouseEventArgs e) {
-			var session = mediaPlayer.PlaybackSession;
-			if(session != null) {
-				session.Position = TimeSpan.FromSeconds(trackPlayingPos.Value);
-			}
-			isDraggingPlayPos = false;
-		}
-		private void SyncTrackBarClickLocation(System.Windows.Forms.TrackBar trackbar, MouseEventArgs e) {
-			int trackWidth = trackbar.Width - 20;
-			int mouseX = e.X - 10;
-
-			if(mouseX < 0) mouseX = 0;
-			if(mouseX > trackWidth) mouseX = trackWidth;
-
-			double percent = (double)mouseX / trackWidth;
-			int newValue = (int)(trackbar.Minimum + (percent * (trackbar.Maximum - trackbar.Minimum)));
-
-			trackbar.Value = newValue;
 		}
 	}
 }

@@ -3,7 +3,7 @@ using System.Text;
 using System.Text.Json;
 
 namespace AMQSongBrowser {
-	internal class DataCache {
+	public class DataCache {
 		private static readonly Lazy<DataCache> _instance= new Lazy<DataCache>(() => new DataCache());
 		public static DataCache Instance => _instance.Value;
 		private DataCache() {
@@ -20,7 +20,7 @@ namespace AMQSongBrowser {
 			}
 		}
 
-		public struct AnimeData {
+		public class AnimeData {
 			public string[] names;
 			public string[] nameslower;
 			public string nameja;
@@ -40,18 +40,20 @@ namespace AMQSongBrowser {
 				writer.Write(seasonid);
 				writer.Write(category);
 			}
-			public AnimeData(BinaryReader reader) {
-				names = DataCache.LoadStringArray(reader);
-				nameslower = DataCache.LoadStringArray(reader);
-				nameja = reader.ReadString();
-				nameen = reader.ReadString();
-				annid = reader.ReadInt32();
-				year = reader.ReadInt32();
-				seasonid = reader.ReadInt32();
-				category = reader.ReadString();
+			public static AnimeData Load(BinaryReader reader) {
+				var ret = new AnimeData();
+				ret.names = DataCache.LoadStringArray(reader);
+				ret.nameslower = DataCache.LoadStringArray(reader);
+				ret.nameja = reader.ReadString();
+				ret.nameen = reader.ReadString();
+				ret.annid = reader.ReadInt32();
+				ret.year = reader.ReadInt32();
+				ret.seasonid = reader.ReadInt32();
+				ret.category = reader.ReadString();
+				return ret;
 			}
 		};
-		public struct SongData {
+		public class SongData {
 			public string name;
 			public string namelower;
 			public bool standard;
@@ -79,22 +81,24 @@ namespace AMQSongBrowser {
 				writer.Write(arrangerartist);
 				writer.Write(arrangergroup);
 			}
-			public SongData(BinaryReader reader) {
-				name = reader.ReadString();
-				namelower = reader.ReadString();
-				standard = reader.ReadBoolean();
-				instrumental = reader.ReadBoolean();
-				chanting = reader.ReadBoolean();
-				character = reader.ReadBoolean();
-				artist = reader.ReadInt32();
-				group = reader.ReadInt32();
-				composerartist = reader.ReadInt32();
-				composergroup = reader.ReadInt32();
-				arrangerartist = reader.ReadInt32();
-				arrangergroup = reader.ReadInt32();
+			public static SongData Load(BinaryReader reader) {
+				var ret = new SongData();
+				ret.name = reader.ReadString();
+				ret.namelower = reader.ReadString();
+				ret.standard = reader.ReadBoolean();
+				ret.instrumental = reader.ReadBoolean();
+				ret.chanting = reader.ReadBoolean();
+				ret.character = reader.ReadBoolean();
+				ret.artist = reader.ReadInt32();
+				ret.group = reader.ReadInt32();
+				ret.composerartist = reader.ReadInt32();
+				ret.composergroup = reader.ReadInt32();
+				ret.arrangerartist = reader.ReadInt32();
+				ret.arrangergroup = reader.ReadInt32();
+				return ret;
 			}
 		};
-		public struct ArtistData {
+		public class ArtistData {
 			public string name;
 			public string namelower;
 			public HashSet<int> altnames;
@@ -104,13 +108,15 @@ namespace AMQSongBrowser {
 				writer.Write(namelower);
 				DataCache.SaveIntHashSet(writer, altnames);
 			}
-			public ArtistData(BinaryReader reader) {
-				name = reader.ReadString();
-				namelower = reader.ReadString();
-				altnames = DataCache.LoadIntHashSet(reader);
+			public static ArtistData Load(BinaryReader reader) {
+				var ret = new ArtistData();
+				ret.name = reader.ReadString();
+				ret.namelower = reader.ReadString();
+				ret.altnames = DataCache.LoadIntHashSet(reader);
+				return ret;
 			}
 		}
-		public struct GroupData {
+		public class GroupData {
 			public string name;
 			public string namelower;
 			public string nameartists;
@@ -127,17 +133,19 @@ namespace AMQSongBrowser {
 				DataCache.SaveIntHashSet(writer, altnames);
 
 			}
-			public GroupData(BinaryReader reader) {
-				name = reader.ReadString();
-				namelower = reader.ReadString();
-				nameartists = reader.ReadString();
-				artists = DataCache.LoadIntHashSet(reader);
-				groups = DataCache.LoadIntHashSet(reader);
-				altnames = DataCache.LoadIntHashSet(reader);
+			public static GroupData Load(BinaryReader reader) {
+				var ret = new GroupData();
+				ret.name = reader.ReadString();
+				ret.namelower = reader.ReadString();
+				ret.nameartists = reader.ReadString();
+				ret.artists = DataCache.LoadIntHashSet(reader);
+				ret.groups = DataCache.LoadIntHashSet(reader);
+				ret.altnames = DataCache.LoadIntHashSet(reader);
+				return ret;
 			}
 		};
 
-		public struct AllSongListData {
+		public class AllSongListData {
 			public int animeid;
 			public int songid;
 			public int artistid;
@@ -153,6 +161,7 @@ namespace AMQSongBrowser {
 			public bool rebroad;
 			public string animecategory;
 
+			public AllSongListData Clone() { return (AllSongListData)MemberwiseClone(); }
 			public void Save(BinaryWriter writer) {
 				writer.Write(animeid);
 				writer.Write(songid);
@@ -169,21 +178,23 @@ namespace AMQSongBrowser {
 				writer.Write(rebroad);
 				writer.Write(animecategory);
 			}
-			public AllSongListData(BinaryReader reader) {
-				animeid = reader.ReadInt32();
-				songid = reader.ReadInt32();
-				artistid = reader.ReadInt32();
-				groupid = reader.ReadInt32();
-				type = reader.ReadInt32();
-				number = reader.ReadInt32();
-				annsongid = reader.ReadInt32();
-				standard = reader.ReadBoolean();
-				instrumental = reader.ReadBoolean();
-				chanting = reader.ReadBoolean();
-				character = reader.ReadBoolean();
-				dub = reader.ReadBoolean();
-				rebroad = reader.ReadBoolean();
-				animecategory = reader.ReadString();
+			public static AllSongListData Load(BinaryReader reader) {
+				var ret = new AllSongListData();
+				ret.animeid = reader.ReadInt32();
+				ret.songid = reader.ReadInt32();
+				ret.artistid = reader.ReadInt32();
+				ret.groupid = reader.ReadInt32();
+				ret.type = reader.ReadInt32();
+				ret.number = reader.ReadInt32();
+				ret.annsongid = reader.ReadInt32();
+				ret.standard = reader.ReadBoolean();
+				ret.instrumental = reader.ReadBoolean();
+				ret.chanting = reader.ReadBoolean();
+				ret.character = reader.ReadBoolean();
+				ret.dub = reader.ReadBoolean();
+				ret.rebroad = reader.ReadBoolean();
+				ret.animecategory = reader.ReadString();
+				return ret;
 			}
 		}
 
@@ -455,30 +466,30 @@ namespace AMQSongBrowser {
 					var count = reader.ReadInt32();
 					for(int i = 0; i < count; i++) {
 						var key = reader.ReadInt32();
-						var value = new AnimeData(reader);
+						var value = AnimeData.Load(reader);
 						animeDataMap.Add(key, value);
 					}
 					count = reader.ReadInt32();
 					for(int i = 0; i < count; i++) {
 						var key = reader.ReadInt32();
-						var value = new SongData(reader);
+						var value = SongData.Load(reader);
 						songDataMap.Add(key, value);
 					}
 					count = reader.ReadInt32();
 					for(int i = 0; i < count; i++) {
 						var key = reader.ReadInt32();
-						var value = new ArtistData(reader);
+						var value = ArtistData.Load(reader);
 						artistDataMap.Add(key, value);
 					}
 					count = reader.ReadInt32();
 					for(int i = 0; i < count; i++) {
 						var key = reader.ReadInt32();
-						var value = new GroupData(reader);
+						var value = GroupData.Load(reader);
 						groupDataMap.Add(key, value);
 					}
 					count = reader.ReadInt32();
 					for(int i = 0; i < count; i++) {
-						var data = new AllSongListData(reader);
+						var data = AllSongListData.Load(reader);
 						allSongList.Add(data);
 					}
 					timeLastUpdate = DateTime.FromBinary(binarytime).ToLocalTime();

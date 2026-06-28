@@ -23,7 +23,6 @@
 		///  the contents of this method with the code editor.
 		/// </summary>
 		private void InitializeComponent() {
-			components = new System.ComponentModel.Container();
 			textSongName = new TextBox();
 			checkSongName = new CheckBox();
 			checkArtist = new CheckBox();
@@ -36,7 +35,7 @@
 			checkInstrumental = new CheckBox();
 			checkDub = new CheckBox();
 			checkRebroad = new CheckBox();
-			listResult = new ListView();
+			listResult = new SongListView();
 			columnHeader1 = new ColumnHeader();
 			columnHeader2 = new ColumnHeader();
 			columnHeader3 = new ColumnHeader();
@@ -49,13 +48,7 @@
 			checkStandard = new CheckBox();
 			button1 = new Button();
 			labelLastUpdate = new Label();
-			toolTip1 = new ToolTip(components);
-			trackPlayingPos = new TrackBar();
-			trackVolume = new TrackBar();
-			buttonPlay = new Button();
-			buttonMute = new Button();
-			((System.ComponentModel.ISupportInitialize)trackPlayingPos).BeginInit();
-			((System.ComponentModel.ISupportInitialize)trackVolume).BeginInit();
+			buttonPlayer = new Button();
 			SuspendLayout();
 			// 
 			// textSongName
@@ -231,7 +224,6 @@
 			listResult.FullRowSelect = true;
 			listResult.GridLines = true;
 			listResult.Location = new Point(12, 72);
-			listResult.MultiSelect = false;
 			listResult.Name = "listResult";
 			listResult.ShowGroups = false;
 			listResult.Size = new Size(1360, 257);
@@ -239,15 +231,9 @@
 			listResult.TabStop = false;
 			listResult.UseCompatibleStateImageBehavior = false;
 			listResult.View = View.Details;
-			listResult.ColumnClick += OnResultClickColumn;
-			listResult.ColumnWidthChanged += OnResultChangedColumnWidth;
-			listResult.ColumnWidthChanging += OnResultChangingColumnWidth;
-			listResult.SelectedIndexChanged += OnResultSelectedIndexChanged;
-			listResult.Enter += OnEnterResult;
+			listResult.VirtualMode = true;
 			listResult.KeyDown += OnResultKeyDown;
-			listResult.MouseClick += OnResultClick;
 			listResult.MouseDoubleClick += OnResultDoubleClick;
-			listResult.MouseLeave += OnResultMouseLeave;
 			// 
 			// columnHeader1
 			// 
@@ -284,7 +270,7 @@
 			radioEnglish.Text = "English";
 			radioEnglish.TextAlign = ContentAlignment.MiddleCenter;
 			radioEnglish.UseVisualStyleBackColor = true;
-			radioEnglish.Click += OnEnglishClick;
+			radioEnglish.Click += OnLanguageClick;
 			radioEnglish.Enter += DisableRadioTabstop;
 			radioEnglish.Leave += DisableRadioTabstop;
 			// 
@@ -300,7 +286,7 @@
 			radioRomaji.Text = "Romaji";
 			radioRomaji.TextAlign = ContentAlignment.MiddleCenter;
 			radioRomaji.UseVisualStyleBackColor = true;
-			radioRomaji.Click += OnRomajiClick;
+			radioRomaji.Click += OnLanguageClick;
 			radioRomaji.Enter += DisableRadioTabstop;
 			radioRomaji.Leave += DisableRadioTabstop;
 			// 
@@ -368,87 +354,25 @@
 			labelLastUpdate.TabIndex = 6;
 			labelLastUpdate.TextAlign = ContentAlignment.MiddleRight;
 			// 
-			// toolTip1
+			// buttonPlayer
 			// 
-			toolTip1.AutoPopDelay = 5000;
-			toolTip1.InitialDelay = 100;
-			toolTip1.ReshowDelay = 100;
-			// 
-			// trackPlayingPos
-			// 
-			trackPlayingPos.AutoSize = false;
-			trackPlayingPos.BackColor = SystemColors.Control;
-			trackPlayingPos.Enabled = false;
-			trackPlayingPos.LargeChange = 10;
-			trackPlayingPos.Location = new Point(1126, 16);
-			trackPlayingPos.Name = "trackPlayingPos";
-			trackPlayingPos.Size = new Size(100, 22);
-			trackPlayingPos.TabIndex = 8;
-			trackPlayingPos.TabStop = false;
-			trackPlayingPos.TickStyle = TickStyle.None;
-			trackPlayingPos.MouseDown += OnPlayPosMouseDown;
-			trackPlayingPos.MouseUp += OnPlayPosMouseUp;
-			// 
-			// trackVolume
-			// 
-			trackVolume.AutoSize = false;
-			trackVolume.BackColor = SystemColors.Control;
-			trackVolume.Location = new Point(1126, 44);
-			trackVolume.Maximum = 100;
-			trackVolume.Name = "trackVolume";
-			trackVolume.Size = new Size(100, 22);
-			trackVolume.SmallChange = 5;
-			trackVolume.TabIndex = 8;
-			trackVolume.TabStop = false;
-			trackVolume.TickFrequency = 10;
-			trackVolume.TickStyle = TickStyle.None;
-			trackVolume.Value = 50;
-			trackVolume.ValueChanged += OnVolumeValueChanged;
-			trackVolume.MouseDown += OnVolumeMouseDown;
-			// 
-			// buttonPlay
-			// 
-			buttonPlay.BackColor = SystemColors.Control;
-			buttonPlay.Enabled = false;
-			buttonPlay.FlatAppearance.BorderSize = 0;
-			buttonPlay.FlatAppearance.MouseDownBackColor = SystemColors.Control;
-			buttonPlay.FlatAppearance.MouseOverBackColor = SystemColors.Control;
-			buttonPlay.FlatStyle = FlatStyle.Flat;
-			buttonPlay.Font = new Font("Segoe UI", 12F, FontStyle.Regular, GraphicsUnit.Point, 0);
-			buttonPlay.Location = new Point(1097, 12);
-			buttonPlay.Name = "buttonPlay";
-			buttonPlay.Size = new Size(26, 26);
-			buttonPlay.TabIndex = 9;
-			buttonPlay.TabStop = false;
-			buttonPlay.Text = "▶";
-			buttonPlay.UseVisualStyleBackColor = false;
-			buttonPlay.Click += OnPauseResumeClick;
-			// 
-			// buttonMute
-			// 
-			buttonMute.BackColor = SystemColors.Control;
-			buttonMute.FlatAppearance.BorderSize = 0;
-			buttonMute.FlatAppearance.MouseDownBackColor = SystemColors.Control;
-			buttonMute.FlatAppearance.MouseOverBackColor = SystemColors.Control;
-			buttonMute.FlatStyle = FlatStyle.Flat;
-			buttonMute.Font = new Font("Segoe UI", 12F);
-			buttonMute.Location = new Point(1097, 40);
-			buttonMute.Name = "buttonMute";
-			buttonMute.Size = new Size(26, 26);
-			buttonMute.TabIndex = 9;
-			buttonMute.TabStop = false;
-			buttonMute.Text = "🔊";
-			buttonMute.UseVisualStyleBackColor = false;
-			buttonMute.Click += OnMuteClick;
+			buttonPlayer.FlatAppearance.BorderSize = 0;
+			buttonPlayer.FlatStyle = FlatStyle.Flat;
+			buttonPlayer.Image = Properties.Resources.player;
+			buttonPlayer.Location = new Point(1074, 12);
+			buttonPlayer.Name = "buttonPlayer";
+			buttonPlayer.Size = new Size(54, 54);
+			buttonPlayer.TabIndex = 11;
+			buttonPlayer.TabStop = false;
+			buttonPlayer.UseVisualStyleBackColor = true;
+			buttonPlayer.Click += OnPlayerClick;
 			// 
 			// MainForm
 			// 
 			AutoScaleDimensions = new SizeF(7F, 15F);
 			AutoScaleMode = AutoScaleMode.Font;
 			ClientSize = new Size(1384, 341);
-			Controls.Add(buttonMute);
-			Controls.Add(buttonPlay);
-			Controls.Add(trackVolume);
+			Controls.Add(buttonPlayer);
 			Controls.Add(labelLastUpdate);
 			Controls.Add(button1);
 			Controls.Add(radioRomaji);
@@ -469,7 +393,6 @@
 			Controls.Add(textAnime);
 			Controls.Add(textArtist);
 			Controls.Add(textSongName);
-			Controls.Add(trackPlayingPos);
 			Font = new Font("Segoe UI", 9F, FontStyle.Regular, GraphicsUnit.Point, 0);
 			MinimumSize = new Size(1400, 266);
 			Name = "MainForm";
@@ -478,8 +401,7 @@
 			Load += OnFormLoad;
 			ResizeBegin += OnFormResizeBegin;
 			ResizeEnd += OnFormResizeEnd;
-			((System.ComponentModel.ISupportInitialize)trackPlayingPos).EndInit();
-			((System.ComponentModel.ISupportInitialize)trackVolume).EndInit();
+			SizeChanged += OnFormSizeChanged;
 			ResumeLayout(false);
 			PerformLayout();
 		}
@@ -498,7 +420,7 @@
 		private CheckBox checkInstrumental;
 		private CheckBox checkDub;
 		private CheckBox checkRebroad;
-		private ListView listResult;
+		private SongListView listResult;
 		private RadioButton radioEnglish;
 		private RadioButton radioRomaji;
 		private ColumnHeader columnHeader1;
@@ -511,10 +433,6 @@
 		private CheckBox checkStandard;
 		private Button button1;
 		private Label labelLastUpdate;
-		private ToolTip toolTip1;
-		private TrackBar trackPlayingPos;
-		private TrackBar trackVolume;
-		private Button buttonPlay;
-		private Button buttonMute;
+		private Button buttonPlayer;
 	}
 }
