@@ -60,7 +60,6 @@
 			listSongs.View = View.Details;
 			listSongs.VirtualMode = true;
 			listSongs.KeyDown += OnListKeyDown;
-			listSongs.MouseClick += OnListClick;
 			listSongs.MouseDoubleClick += OnListDoubleClick;
 			// 
 			// columnHeader1

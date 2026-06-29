@@ -41,11 +41,25 @@ namespace AMQSongBrowser {
 			InitializeComponent();
 			radioEnglish.TabStop = false;
 			radioRomaji.TabStop = false;
+			RegisterDragDropRecursive(this);
 			httpClient.DefaultRequestHeaders.Add("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36");
 
 			musicplayerform = new MusicPlayerForm(httpClient);
 		}
-
+		private void RegisterDragDropRecursive(Control parent) {
+			parent.AllowDrop = true;
+			parent.DragOver += OnDragOver;
+			parent.DragDrop += OnDragDrop;
+			foreach(Control child in parent.Controls)
+				RegisterDragDropRecursive(child);
+		}
+		private void OnDragOver(object sender, DragEventArgs e) {
+			e.Effect = e.Data.GetDataPresent(DataFormats.FileDrop) ? (e.KeyState & 8) == 8 ? DragDropEffects.Copy : DragDropEffects.Move : DragDropEffects.None;
+		}
+		public void OnDragDrop(object sender, DragEventArgs e) {
+			musicplayerform.OnDragDrop(sender, e);
+			ShowPlayer();
+		}
 		private ContextMenuStrip contextmenu;
 		private void InitContextMenu() {
 			contextmenu = new ContextMenuStrip();

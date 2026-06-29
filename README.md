@@ -34,6 +34,8 @@ A lightweight and fast desktop application designed to search and play anime son
 * Right-click songs in the lists to open a context menu with available actions
 * Use the Music Player window to manage queued songs
 * The playlist is automatically saved and restored between application launches
+* Drag and drop an AMQ exported JSON file onto the playlist to import songs.
+* By default, importing a JSON file replaces the current playlist. Hold Ctrl while dropping the file to append the imported songs to the existing playlist instead.
 
 ## Thanks to
 

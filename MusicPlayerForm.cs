@@ -1,4 +1,5 @@
-﻿using System.Security.Policy;
+﻿using System.Runtime.InteropServices;
+using System.Security.Policy;
 using System.Text;
 using System.Text.Json;
 using Windows.Media.Playback;
@@ -10,15 +11,66 @@ namespace AMQSongBrowser {
 	public partial class MusicPlayerForm : Form {
 		public MusicPlayerForm(HttpClient httpclient) {
 			InitializeComponent();
+			RegisterDragDropRecursive(this);
 			InitMediaPlayer();
 			httpClient = httpclient;
+		}
+
+		[DllImport("user32.dll")]
+		private static extern bool SetForegroundWindow(IntPtr hWnd);
+		protected override bool ShowWithoutActivation { get { return true; } }
+
+		private void RegisterDragDropRecursive(Control parent) {
+			parent.AllowDrop = true;
+			parent.DragOver += OnDragOver;
+			parent.DragDrop += OnDragDrop;
+			foreach(Control child in parent.Controls)
+				RegisterDragDropRecursive(child);
+		}
+		private void OnDragOver(object sender, DragEventArgs e) {
+			e.Effect = e.Data.GetDataPresent(DataFormats.FileDrop) ? (e.KeyState & 8) == 8 ? DragDropEffects.Copy : DragDropEffects.Move : DragDropEffects.None;
+		}
+		public void OnDragDrop(object sender, DragEventArgs e) {
+			string[] filePaths = (string[])e.Data.GetData(DataFormats.FileDrop);
+			if(filePaths != null && filePaths.Length > 0) {
+				var newsonglist = new List<AllSongListData>();
+				foreach(var path in filePaths) {
+					var templist = OpenFile(path);
+					if(templist != null && templist.Count > 0) newsonglist.AddRange(templist);
+				}
+				if(newsonglist.Count > 0) {
+					if((e.KeyState & 8) == 8) songlist.AddRange(newsonglist);
+					else songlist = newsonglist;
+					UpdateList();
+				}
+			}
+			SetForegroundWindow(Handle);
+		}
+		private List<AllSongListData> OpenFile(string path) {
+			try {
+				string jsonString= File.ReadAllText(path);
+				using(JsonDocument doc = JsonDocument.Parse(jsonString)) {
+					var ret = new List<AllSongListData>();
+					JsonElement songs = doc.RootElement.GetProperty("songs");
+					foreach(JsonElement song in songs.EnumerateArray()) {
+						var songinfo = song.GetProperty("songInfo");
+						var annsongid = songinfo.GetProperty("annSongId").GetInt32();
+						var temp = DataCache.Instance.GetAllSongListData(annsongid);
+						if(temp!=null) ret.Add(temp);
+						else MessageBox.Show($"{path}\nUnknown AnnSongID: {annsongid}\nUpdate database cache", "Warning", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+					}
+					return ret;
+				}
+			}
+			catch {
+				MessageBox.Show($"Unknown format: {path}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+				return null;
+			}
 		}
 
 		private ContextMenuStrip contextmenu;
 		private void InitContextMenu() {
 			contextmenu = new ContextMenuStrip();
-			//contextmenu.Items.Add(new ToolStripMenuItem("Play", null, PlaySong, Keys.Enter));
-
 			((ToolStripMenuItem)contextmenu.Items.Add("Play", null, PlaySong)).ShortcutKeyDisplayString = "Enter";
 			((ToolStripMenuItem)contextmenu.Items.Add("Pause / Resume", null, PauseResume)).ShortcutKeyDisplayString = "Space";
 			((ToolStripMenuItem)contextmenu.Items.Add("Play Previous Song", null, OnPrevClick)).ShortcutKeyDisplayString = "Q";
@@ -90,8 +142,6 @@ namespace AMQSongBrowser {
 				}
 			}
 		}
-
-		protected override bool ShowWithoutActivation { get { return true; } }
 
 		bool IsShuffle = false;
 		int RepeatType = 0;
@@ -214,13 +264,6 @@ namespace AMQSongBrowser {
 			else return;
 			e.Handled = true;
 			e.SuppressKeyPress = true;
-		}
-		private void OnListClick(object sender, MouseEventArgs e) {
-			if(!inited) return;
-			if(e.Button == MouseButtons.Right) {
-				var songdata = listSongs.GetFocusedSongData();
-				//if(songdata != null) PlaySong(songdata);
-			}
 		}
 		private void OnListDoubleClick(object sender, MouseEventArgs e) {
 			if(!inited) return;

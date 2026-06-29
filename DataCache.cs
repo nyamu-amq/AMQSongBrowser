@@ -649,5 +649,8 @@ namespace AMQSongBrowser {
 			});
 			return result;
 		}
+		public AllSongListData GetAllSongListData(int annsongid) {
+			return allSongList.Find(x => x.annsongid == annsongid);
+		}
 	}
 }
